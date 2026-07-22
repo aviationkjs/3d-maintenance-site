@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>모델 상세 · 3D Maintenance Site</title>
+<link rel="stylesheet" href="assets/style.css" />
+<script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+</head>
+<body>
+<header class="site-header">
+  <div class="brand">3D Maintenance Site</div>
+  <nav>
+    <a href="index.html">홈</a>
+    <a href="catalog.html">카탈로그</a>
+    <a href="#" id="adminToggle">관리자 모드</a>
+  </nav>
+</header>
+
+<main>
+  <p class="hint" id="loadingMsg">불러오는 중...</p>
+  <div class="detail-layout" id="detailLayout" style="display:none;">
+    <div class="viewer-pane" id="viewerPane">
+      <div class="viewer-empty" id="viewerEmpty">등록된 3D 모델이 없습니다</div>
+    </div>
+
+    <div class="info-pane">
+      <h1 id="itemName">-</h1>
+      <p class="cat-label" id="itemCategory">-</p>
+
+      <div class="procedure-box" id="procedureView"></div>
+
+      <div class="admin-panel" id="adminPanel" style="display:none;">
+        <span class="admin-badge">관리자</span>
+        <div class="form-row" style="margin-top:10px;">
+          <label>3D 모델 파일 교체 (.glb)</label>
+          <input type="file" id="glbInput" accept=".glb" />
+          <p class="hint" id="uploadStatus"></p>
+        </div>
+        <div class="form-row">
+          <label>사용/정비 안내 텍스트</label>
+          <textarea id="procedureInput"></textarea>
+        </div>
+        <button class="primary" id="saveProcedureBtn">저장</button>
+        <p class="hint" id="saveStatus"></p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<dialog id="pwDialog">
+  <p style="margin-top:0; font-size:14px;">관리자 비밀번호</p>
+  <input type="password" id="pwInput" placeholder="비밀번호" />
+  <p class="error-text" id="pwError" style="display:none;">비밀번호가 올바르지 않습니다.</p>
+  <div style="display:flex; gap:8px; margin-top:12px; justify-content:flex-end;">
+    <button id="pwCancel">취소</button>
+    <button class="primary" id="pwSubmit">확인</button>
+  </div>
+</dialog>
+
+<script type="module">
+  import { db, storage } from "./assets/firebase.js";
+  import { ref, get, update } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
+  import { ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
+  import { isAdmin, tryUnlockAdmin, lockAdmin, escapeHtml } from "./assets/common.js";
+
+  const id = new URLSearchParams(location.search).get("id");
+  const loadingMsg = document.getElementById("loadingMsg");
+  const detailLayout = document.getElementById("detailLayout");
+  const viewerPane = document.getElementById("viewerPane");
+  const viewerEmpty = document.getElementById("viewerEmpty");
+  const itemNameEl = document.getElementById("itemName");
+  const itemCategoryEl = document.getElementById("itemCategory");
+  const procedureView = document.getElementById("procedureView");
+  const procedureInput = document.getElementById("procedureInput");
+
+  if (!id) {
+    loadingMsg.textContent = "잘못된 접근입니다. 카탈로그에서 모델을 선택해주세요.";
+  }
+
+  let modelViewerEl = null;
+
+  function renderViewer(glbUrl) {
+    if (modelViewerEl) modelViewerEl.remove();
+    if (!glbUrl) {
+      viewerEmpty.style.display = "flex";
+      return;
+    }
+    viewerEmpty.style.display = "none";
+    modelViewerEl = document.createElement("model-viewer");
+    modelViewerEl.setAttribute("src", glbUrl);
+    modelViewerEl.setAttribute("camera-controls", "");
+    modelViewerEl.setAttribute("auto-rotate", "");
+    modelViewerEl.setAttribute("shadow-intensity", "1");
+    viewerPane.appendChild(modelViewerEl);
+  }
+
+  async function loadItem() {
+    const snap = await get(ref(db, `appliances/${id}`));
+    const item = snap.val();
+    if (!item) {
+      loadingMsg.textContent = "존재하지 않는 모델입니다.";
+      return;
+    }
+    itemNameEl.textContent = item.name || "이름 없음";
+    itemCategoryEl.textContent = item.category || "미분류";
+    procedureView.textContent = item.procedure || "등록된 사용/정비 안내가 아직 없습니다.";
+    procedureInput.value = item.procedure || "";
+    renderViewer(item.glbUrl);
+    loadingMsg.style.display = "none";
+    detailLayout.style.display = "flex";
+  }
+
+  if (id) loadItem();
+
+  // --- admin gate ---
+  const pwDialog = document.getElementById("pwDialog");
+  const pwInput = document.getElementById("pwInput");
+  const pwError = document.getElementById("pwError");
+  const adminToggle = document.getElementById("adminToggle");
+  const adminPanel = document.getElementById("adminPanel");
+
+  function refreshAdminUI() {
+    const unlocked = isAdmin();
+    adminToggle.textContent = unlocked ? "관리자 모드 끄기" : "관리자 모드";
+    adminPanel.style.display = unlocked ? "block" : "none";
+  }
+  refreshAdminUI();
+
+  adminToggle.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (isAdmin()) {
+      lockAdmin();
+      refreshAdminUI();
+    } else {
+      pwError.style.display = "none";
+      pwInput.value = "";
+      pwDialog.showModal();
+    }
+  });
+
+  document.getElementById("pwCancel").addEventListener("click", () => pwDialog.close());
+  document.getElementById("pwSubmit").addEventListener("click", async () => {
+    const ok = await tryUnlockAdmin(pwInput.value);
+    if (ok) {
+      pwDialog.close();
+      refreshAdminUI();
+    } else {
+      pwError.style.display = "block";
+    }
+  });
+
+  // --- glb upload ---
+  document.getElementById("glbInput").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    const statusEl = document.getElementById("uploadStatus");
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".glb")) {
+      statusEl.textContent = "glb 파일만 업로드할 수 있어요.";
+      return;
+    }
+    statusEl.textContent = "업로드 중...";
+    try {
+      const path = `models/${id}/${Date.now()}_${file.name}`;
+      const fileRef = sRef(storage, path);
+      await uploadBytes(fileRef, file);
+      const url = await getDownloadURL(fileRef);
+      await update(ref(db, `appliances/${id}`), { glbUrl: url, updatedAt: Date.now() });
+      renderViewer(url);
+      statusEl.textContent = "업로드 완료";
+    } catch (err) {
+      statusEl.textContent = `업로드 실패: ${err.message}`;
+    }
+  });
+
+  // --- save procedure text ---
+  document.getElementById("saveProcedureBtn").addEventListener("click", async () => {
+    const statusEl = document.getElementById("saveStatus");
+    try {
+      await update(ref(db, `appliances/${id}`), { procedure: procedureInput.value, updatedAt: Date.now() });
+      procedureView.textContent = procedureInput.value || "등록된 사용/정비 안내가 아직 없습니다.";
+      statusEl.textContent = "저장됨";
+    } catch (err) {
+      statusEl.textContent = `저장 실패: ${err.message}`;
+    }
+  });
+</script>
+</body>
+</html>

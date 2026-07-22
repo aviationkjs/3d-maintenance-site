@@ -1,0 +1,17 @@
+{
+  "rules": {
+    "appliances": {
+      ".read": true,
+      ".write": true,
+      "$id": {
+        ".validate": "newData.hasChildren(['name', 'category'])",
+        "name": { ".validate": "newData.isString() && newData.val().length <= 100" },
+        "category": { ".validate": "newData.isString() && newData.val().length <= 50" },
+        "glbUrl": { ".validate": "newData.isString()" },
+        "procedure": { ".validate": "newData.isString() && newData.val().length <= 5000" },
+        "updatedAt": { ".validate": "newData.isNumber()" },
+        "$other": { ".validate": false }
+      }
+    }
+  }
+}

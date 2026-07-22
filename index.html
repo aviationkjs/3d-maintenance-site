@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>3D Maintenance Site</title>
+<link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+<header class="site-header">
+  <div class="brand">3D Maintenance Site</div>
+  <nav>
+    <a href="index.html">홈</a>
+    <a href="catalog.html">카탈로그</a>
+  </nav>
+</header>
+
+<main>
+  <p class="section-title">카테고리</p>
+  <div class="category-grid" id="categoryGrid"></div>
+
+  <p class="section-title">최근 등록된 모델</p>
+  <div class="card-grid" id="recentGrid">
+    <p class="hint">불러오는 중...</p>
+  </div>
+</main>
+
+<script type="module">
+  import { db } from "./assets/firebase.js";
+  import { ref, get } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
+  import { CATEGORIES, renderItemCard } from "./assets/common.js";
+
+  const categoryGrid = document.getElementById("categoryGrid");
+  categoryGrid.innerHTML = CATEGORIES.map((cat) =>
+    `<a class="category-card" href="catalog.html?cat=${encodeURIComponent(cat)}">${cat}</a>`
+  ).join("");
+
+  const recentGrid = document.getElementById("recentGrid");
+  try {
+    const snap = await get(ref(db, "appliances"));
+    const data = snap.val() || {};
+    const items = Object.entries(data)
+      .sort((a, b) => (b[1].updatedAt || 0) - (a[1].updatedAt || 0))
+      .slice(0, 6);
+
+    recentGrid.innerHTML = items.length
+      ? items.map(([id, item]) => renderItemCard(id, item)).join("")
+      : `<p class="hint">아직 등록된 모델이 없어요. 카탈로그에서 관리자 모드로 추가해보세요.</p>`;
+  } catch (err) {
+    recentGrid.innerHTML = `<p class="error-text">데이터를 불러오지 못했습니다: ${err.message}</p>`;
+  }
+</script>
+</body>
+</html>
