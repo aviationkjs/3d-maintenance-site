@@ -59,10 +59,20 @@
 </dialog>
 
 <script type="module">
-  import { db, storage } from "./assets/firebase.js";
+  import { db } from "./assets/firebase.js";
   import { ref, get, update } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
-  import { ref as sRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-storage.js";
   import { isAdmin, tryUnlockAdmin, lockAdmin, escapeHtml } from "./assets/common.js";
+
+  const MAX_GLB_BYTES = 6 * 1024 * 1024;
+
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
 
   const id = new URLSearchParams(location.search).get("id");
   const loadingMsg = document.getElementById("loadingMsg");
@@ -159,17 +169,18 @@
       statusEl.textContent = "glb 파일만 업로드할 수 있어요.";
       return;
     }
-    statusEl.textContent = "업로드 중...";
+    if (file.size > MAX_GLB_BYTES) {
+      statusEl.textContent = `파일이 너무 커요 (${(file.size / 1024 / 1024).toFixed(1)}MB). 6MB 이하로 압축해주세요.`;
+      return;
+    }
+    statusEl.textContent = "저장 중...";
     try {
-      const path = `models/${id}/${Date.now()}_${file.name}`;
-      const fileRef = sRef(storage, path);
-      await uploadBytes(fileRef, file);
-      const url = await getDownloadURL(fileRef);
-      await update(ref(db, `appliances/${id}`), { glbUrl: url, updatedAt: Date.now() });
-      renderViewer(url);
-      statusEl.textContent = "업로드 완료";
+      const dataUrl = await fileToDataUrl(file);
+      await update(ref(db, `appliances/${id}`), { glbUrl: dataUrl, updatedAt: Date.now() });
+      renderViewer(dataUrl);
+      statusEl.textContent = "저장 완료";
     } catch (err) {
-      statusEl.textContent = `업로드 실패: ${err.message}`;
+      statusEl.textContent = `저장 실패: ${err.message}`;
     }
   });
 
