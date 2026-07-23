@@ -1,4 +1,4 @@
-export const CATEGORIES = ["냉장고", "세탁기", "에어컨", "전자레인지", "공기청정기"];
+export const CATEGORIES = ["CSL", "상부", "하부", "벌크", "헤드"];
 
 // SHA-256 of the admin password. The password itself is never stored in this file.
 const ADMIN_HASH = "7b4f6f46093c9812bff7745ec3bc0f70d49ad40f18ae3bba91f719f15c0571f7";
